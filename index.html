@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Small Change</title>
+<style>
+  :root {
+    --bg: #1a1a1d;
+    --panel: #25252a;
+    --border: #3a3a42;
+    --text: #e8e8ea;
+    --muted: #9a9aa3;
+    --accent: #4f8cff;
+    --accent-dim: #2a4880;
+    --btn: #2f2f36;
+    --btn-hover: #3a3a44;
+    --btn-active: #4f8cff;
+    --error: #ff6b6b;
+    --ok: #6bd49a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header, section.controls, footer {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header { display: flex; align-items: baseline; gap: 12px; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .sibling { margin-left: auto; color: var(--muted); font-size: 12px; text-decoration: none; }
+  header .sibling:hover { color: var(--accent); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  select, input[type="number"] {
+    background: var(--btn);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    min-width: 70px;
+  }
+  select:focus, input:focus { outline: none; border-color: var(--accent); }
+  select { min-width: 200px; }
+
+  .bank-row { gap: 10px 14px; padding-top: 4px; }
+  .bank-row .field input { width: 80px; }
+  .toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; padding-top: 14px; }
+  .toggle input { accent-color: var(--accent); }
+
+  main { padding: 18px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(16, minmax(0, 1fr));
+    gap: 4px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+  @media (max-width: 500px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  .pc-btn {
+    background: var(--btn);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 4px;
+    font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    cursor: pointer;
+    transition: background 0.08s, border-color 0.08s, transform 0.04s;
+  }
+  .pc-btn:hover:not(:disabled) { background: var(--btn-hover); border-color: var(--accent-dim); }
+  .pc-btn:active:not(:disabled) { transform: scale(0.96); }
+  .pc-btn.active { background: var(--btn-active); border-color: var(--accent); color: white; }
+  .pc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+    position: sticky;
+    bottom: 0;
+  }
+  footer .status.ok { color: var(--ok); }
+  footer .status.err { color: var(--error); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Small Change</h1>
+    <span class="sub">Web MIDI program changer · PC + Bank Select</span>
+    <a class="sibling" href="../sea-change/index.html">Proteus 2000? Try Sea Change →</a>
+  </header>
+
+  <section class="controls">
+    <div class="row">
+      <div class="field">
+        <label for="port">MIDI Output</label>
+        <select id="port"><option value="">— No MIDI access —</option></select>
+      </div>
+      <div class="field">
+        <label for="channel">Channel</label>
+        <select id="channel"></select>
+      </div>
+      <div class="field">
+        <label for="maxPc">Buttons (0…N−1)</label>
+        <input type="number" id="maxPc" min="1" max="128" value="128">
+      </div>
+    </div>
+    <div class="row bank-row">
+      <label class="toggle">
+        <input type="checkbox" id="bankEnable">
+        Send Bank Select before PC
+      </label>
+      <div class="field">
+        <label for="bankMsb">Bank MSB (CC 0)</label>
+        <input type="number" id="bankMsb" min="0" max="127" value="0" disabled>
+      </div>
+      <label class="toggle" id="lsbToggleWrap">
+        <input type="checkbox" id="lsbEnable">
+        Include LSB (CC 32)
+      </label>
+      <div class="field" id="lsbField" hidden>
+        <label for="bankLsb">Bank LSB (CC 32)</label>
+        <input type="number" id="bankLsb" min="0" max="127" value="0" disabled>
+      </div>
+    </div>
+  </section>
+
+  <main>
+    <div id="grid" class="grid"></div>
+  </main>
+
+  <footer>
+    <span id="status" class="status">Requesting MIDI access…</span>
+  </footer>
+
+<script>
+(() => {
+  const $port = document.getElementById('port');
+  const $channel = document.getElementById('channel');
+  const $maxPc = document.getElementById('maxPc');
+  const $bankEnable = document.getElementById('bankEnable');
+  const $bankMsb = document.getElementById('bankMsb');
+  const $bankLsb = document.getElementById('bankLsb');
+  const $lsbEnable = document.getElementById('lsbEnable');
+  const $lsbField = document.getElementById('lsbField');
+  const $grid = document.getElementById('grid');
+  const $status = document.getElementById('status');
+
+  let midiAccess = null;
+  let lastPc = null;
+
+  // Populate channel selector 1–16 (display) → 0–15 (wire)
+  for (let i = 1; i <= 16; i++) {
+    const opt = document.createElement('option');
+    opt.value = String(i - 1);
+    opt.textContent = String(i);
+    $channel.appendChild(opt);
+  }
+
+  function setStatus(msg, kind = '') {
+    $status.textContent = msg;
+    $status.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n | 0)); }
+
+  function refreshPorts() {
+    if (!midiAccess) return;
+    const prev = $port.value;
+    $port.innerHTML = '';
+    const outs = [...midiAccess.outputs.values()];
+    if (outs.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '— No MIDI outputs found —';
+      $port.appendChild(opt);
+      return;
+    }
+    for (const out of outs) {
+      const opt = document.createElement('option');
+      opt.value = out.id;
+      opt.textContent = out.name + (out.manufacturer ? ' (' + out.manufacturer + ')' : '');
+      $port.appendChild(opt);
+    }
+    if (prev && outs.some(o => o.id === prev)) $port.value = prev;
+  }
+
+  function buildGrid() {
+    const n = clamp(parseInt($maxPc.value, 10) || 1, 1, 128);
+    $grid.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('button');
+      b.className = 'pc-btn';
+      b.textContent = String(i);
+      b.dataset.pc = String(i);
+      if (i === lastPc) b.classList.add('active');
+      b.addEventListener('click', () => sendPc(i, b));
+      $grid.appendChild(b);
+    }
+  }
+
+  function sendPc(pc, btnEl) {
+    const portId = $port.value;
+    if (!portId) { setStatus('No MIDI output selected', 'err'); return; }
+    const out = midiAccess && midiAccess.outputs.get(portId);
+    if (!out) { setStatus('Selected MIDI output unavailable', 'err'); return; }
+
+    const ch = clamp(parseInt($channel.value, 10), 0, 15);
+    const bankOn = $bankEnable.checked;
+    const msb = clamp(parseInt($bankMsb.value, 10) || 0, 0, 127);
+    const lsb = clamp(parseInt($bankLsb.value, 10) || 0, 0, 127);
+
+    try {
+      if (bankOn) {
+        out.send([0xB0 | ch,  0, msb]); // CC 0  — Bank Select MSB
+        if ($lsbEnable.checked) {
+          out.send([0xB0 | ch, 32, lsb]); // CC 32 — Bank Select LSB
+        }
+      }
+      out.send([0xC0 | ch, pc & 0x7f]); // Program Change
+    } catch (e) {
+      setStatus('Send failed: ' + e.message, 'err');
+      return;
+    }
+
+    // visual: mark last-pressed
+    if (lastPc !== null) {
+      const prev = $grid.querySelector('.pc-btn[data-pc="' + lastPc + '"]');
+      if (prev) prev.classList.remove('active');
+    }
+    lastPc = pc;
+    if (btnEl) btnEl.classList.add('active');
+
+    const bankPart = bankOn
+      ? ' (bank ' + msb + ($lsbEnable.checked ? '/' + lsb : '') + ')'
+      : '';
+    setStatus('Sent PC ' + pc + bankPart + ' on ch ' + (ch + 1) + ' → ' + out.name, 'ok');
+  }
+
+  $maxPc.addEventListener('change', () => {
+    $maxPc.value = String(clamp(parseInt($maxPc.value, 10) || 1, 1, 128));
+    buildGrid();
+  });
+
+  function syncBankInputs() {
+    const on = $bankEnable.checked;
+    $bankMsb.disabled = !on;
+    $lsbEnable.disabled = !on;
+    $bankLsb.disabled = !on || !$lsbEnable.checked;
+  }
+  $bankEnable.addEventListener('change', syncBankInputs);
+  $lsbEnable.addEventListener('change', () => {
+    $lsbField.hidden = !$lsbEnable.checked;
+    syncBankInputs();
+  });
+  $lsbEnable.disabled = true; // disabled until bankEnable is on
+
+  // Init
+  buildGrid();
+
+  if (!navigator.requestMIDIAccess) {
+    setStatus('Web MIDI not supported in this browser. Use Chrome, Edge, Opera or Firefox 108+ (Safari has no Web MIDI).', 'err');
+    return;
+  }
+
+  navigator.requestMIDIAccess({ sysex: false }).then(access => {
+    midiAccess = access;
+    refreshPorts();
+    access.onstatechange = () => {
+      refreshPorts();
+      setStatus('MIDI ports updated');
+    };
+    if (midiAccess.outputs.size > 0) {
+      setStatus('Ready. ' + midiAccess.outputs.size + ' output(s) found.', 'ok');
+    } else {
+      setStatus('MIDI ready, but no outputs are connected.', 'err');
+    }
+  }).catch(err => {
+    setStatus('MIDI access denied: ' + err.message, 'err');
+  });
+})();
+</script>
+</body>
+</html>
