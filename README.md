@@ -19,6 +19,9 @@ change goes out. Works with anything that responds to program changes.
   highlighted.
 - Optional **Bank Select** before each program change: MSB (CC 0), plus LSB
   (CC 32) if your gear wants it.
+- **Remembers your setup** (output, channel, bank select, button count) in
+  the browser. If the saved output isn't plugged in yet, it's picked up as
+  soon as it appears.
 - One self-contained `index.html`: no build step, no dependencies.
 
 ## Requirements

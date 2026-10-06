@@ -176,8 +176,31 @@
 
   function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n | 0)); }
 
+  // localStorage is shared by every app on the origin, hence the prefixed key.
+  const STORE_KEY = 'small-change:settings';
+  const saved = (() => {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; }
+  })();
+  // The output the user last picked. Port ids can change between sessions, so the name is the fallback.
+  let preferredPort = saved.port || null;
+
+  function saveSettings() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        port: preferredPort,
+        channel: parseInt($channel.value, 10),
+        maxPc: parseInt($maxPc.value, 10),
+        bankEnable: $bankEnable.checked,
+        bankMsb: parseInt($bankMsb.value, 10) || 0,
+        lsbEnable: $lsbEnable.checked,
+        bankLsb: parseInt($bankLsb.value, 10) || 0,
+      }));
+    } catch { /* storage unavailable: settings just aren't remembered */ }
+  }
+
+  // Returns true if the preferred output is connected (and now selected).
   function refreshPorts() {
-    if (!midiAccess) return;
+    if (!midiAccess) return false;
     const prev = $port.value;
     $port.innerHTML = '';
     const outs = [...midiAccess.outputs.values()];
@@ -186,7 +209,7 @@
       opt.value = '';
       opt.textContent = '— No MIDI outputs found —';
       $port.appendChild(opt);
-      return;
+      return false;
     }
     for (const out of outs) {
       const opt = document.createElement('option');
@@ -194,7 +217,16 @@
       opt.textContent = out.name + (out.manufacturer ? ' (' + out.manufacturer + ')' : '');
       $port.appendChild(opt);
     }
-    if (prev && outs.some(o => o.id === prev)) $port.value = prev;
+    const preferred = preferredPort &&
+      (outs.find(o => o.id === preferredPort.id) || outs.find(o => o.name === preferredPort.name));
+    const pick = preferred || outs.find(o => o.id === prev);
+    if (pick) $port.value = pick.id;
+    return !!preferred;
+  }
+
+  function selectedOutputName() {
+    const out = midiAccess && midiAccess.outputs.get($port.value);
+    return out ? out.name : '—';
   }
 
   function buildGrid() {
@@ -265,9 +297,23 @@
     $lsbField.hidden = !$lsbEnable.checked;
     syncBankInputs();
   });
-  $lsbEnable.disabled = true; // disabled until bankEnable is on
+
+  $port.addEventListener('change', () => {
+    const out = midiAccess && midiAccess.outputs.get($port.value);
+    preferredPort = out ? { id: out.id, name: out.name } : null;
+  });
+  // Bubbles up after each control's own handler has run (e.g. the maxPc clamp).
+  document.querySelector('section.controls').addEventListener('change', saveSettings);
 
   // Init
+  $channel.value = String(clamp(saved.channel, 0, 15));
+  $maxPc.value = String(clamp(saved.maxPc ?? 128, 1, 128));
+  $bankEnable.checked = !!saved.bankEnable;
+  $bankMsb.value = String(clamp(saved.bankMsb, 0, 127));
+  $lsbEnable.checked = !!saved.lsbEnable;
+  $bankLsb.value = String(clamp(saved.bankLsb, 0, 127));
+  $lsbField.hidden = !$lsbEnable.checked;
+  syncBankInputs();
   buildGrid();
 
   if (!navigator.requestMIDIAccess) {
@@ -277,15 +323,17 @@
 
   navigator.requestMIDIAccess({ sysex: false }).then(access => {
     midiAccess = access;
-    refreshPorts();
+    const foundPreferred = refreshPorts();
     access.onstatechange = () => {
       refreshPorts();
-      setStatus('MIDI ports updated');
+      setStatus('MIDI ports updated. Output: ' + selectedOutputName());
     };
-    if (midiAccess.outputs.size > 0) {
-      setStatus('Ready. ' + midiAccess.outputs.size + ' output(s) found.', 'ok');
-    } else {
+    if (access.outputs.size === 0) {
       setStatus('MIDI ready, but no outputs are connected.', 'err');
+    } else if (preferredPort && !foundPreferred) {
+      setStatus('Saved output "' + preferredPort.name + '" is not connected. Using ' + selectedOutputName() + ' for now.', 'err');
+    } else {
+      setStatus('Ready. Output: ' + selectedOutputName(), 'ok');
     }
   }).catch(err => {
     setStatus('MIDI access denied: ' + err.message, 'err');
